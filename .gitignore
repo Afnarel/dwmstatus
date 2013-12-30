@@ -13,6 +13,7 @@
 *.dylib
 
 # Executables
+dwmstatus
 *.exe
 *.out
 *.app

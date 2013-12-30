@@ -12,11 +12,36 @@
 
 #include <X11/Xlib.h>
 
-char *tzargentina = "America/Buenos_Aires";
-char *tzutc = "UTC";
-char *tzberlin = "Europe/Berlin";
+/* ********** *
+ * STRUCTURES *
+ * ********** */
+struct Interface {
+	char name[20];
+	unsigned long long int bytes_sent;
+	unsigned long long int bytes_rec;
+};
+
+/* ********** *
+ * PROTOTYPES *
+ * ********** */
+void logger(char* chaine);
+
+char * readfile(char *base, char *file);
+char * getbattery(char *base);
+
+// For the network
+char* get_dev_speed(char* name,
+		unsigned long long int oldsent,
+		unsigned long long int oldrec,
+		unsigned long long int newsent,
+		unsigned long long int newrec);
+int devinfo(struct Interface interfaces[]);
+void network(char netstr[]);
+
+char *tzparis = "Europe/Paris";
 
 static Display *dpy;
+
 
 char *
 smprintf(char *fmt, ...)
@@ -79,6 +104,7 @@ setstatus(char *str)
 	XSync(dpy, False);
 }
 
+/*
 char *
 loadavg(void)
 {
@@ -91,34 +117,267 @@ loadavg(void)
 
 	return smprintf("%.2f %.2f %.2f", avgs[0], avgs[1], avgs[2]);
 }
+*/
+
+void logger(char* chaine) {
+	FILE* fichier = NULL;
+  
+	fichier = fopen("/var/log/dwmstatus.log", "a");
+	char* tmparis = mktimes("%a %d %b %H:%M %Y", tzparis);
+  
+	if (fichier != NULL) {
+		fprintf(fichier, "%s: %s", tmparis, chaine);
+		fclose(fichier);
+	}
+}
+
+
+/* ******* *
+ * Network *
+ * ******* */
+
+int devinfo(struct Interface interfaces[]) {
+	// Create a buffer to store the lines and open the file
+	static int line_length = 255;
+	char* line = (char*) calloc(line_length, 1);
+	FILE* file = fopen("/proc/net/dev", "r");
+
+	// Ignore the first two lines
+	fgets(line, line_length, file);
+	fgets(line, line_length, file);
+
+	// For each line
+	char *part, *iface;
+	int i;
+	int nb_ifaces = 0;
+	while(fgets(line, line_length, file)) {
+		// Get the name of the interface
+		iface = strtok (line,": ");
+		// If it is local loopback, ignore it
+		if(strcmp(iface, "lo")) {
+			part = "42";
+			strcpy(interfaces[nb_ifaces].name, iface);
+			// Otherwise, get the number of bytes sent and received
+			for(i=0; part != NULL; i++) {
+				part = strtok (NULL, ": ");
+				if(i == 0) { // received bytes
+					interfaces[nb_ifaces].bytes_rec = atoi(part);
+				}
+				else if(i == 8) { // sent bytes
+					interfaces[nb_ifaces].bytes_sent = atoi(part);
+				}	
+			}
+			nb_ifaces++;
+		}
+	}
+
+	// Cleanup and return the result
+	fclose(file);
+	free(line);
+	return nb_ifaces;
+}
+
+void network(char netstr[]) {
+	struct Interface interfaces_before[5];
+	struct Interface interfaces_after[5];
+	int nb_ifaces = devinfo(interfaces_before);
+	sleep(1);
+	int nb_ifaces_2 = devinfo(interfaces_after);
+	strcpy(netstr, "");
+
+	if(nb_ifaces != nb_ifaces_2) {
+		logger("[Network] - The number of interfaces has changed");
+		strcpy(netstr, "[-IFACE CHANGE-]");
+		return;
+	}
+
+	int i;
+	for(i = 0; i < nb_ifaces; i++) {
+		// Find the interface corresponding to
+		// interfaces_before[i] in interfaces_after
+		int j;
+		for(j = 0; j < nb_ifaces; j++) {
+			if(!strcmp(interfaces_before[i].name, interfaces_after[j].name)) {
+				if(interfaces_before[i].bytes_sent != 0 &&
+				   interfaces_before[i].bytes_rec  != 0 &&
+				   interfaces_after[j].bytes_sent  != 0 &&
+				   interfaces_after[j].bytes_rec   != 0) {	
+	
+					char* ifacestr = get_dev_speed(interfaces_before[i].name,
+						interfaces_before[i].bytes_sent,
+						interfaces_before[i].bytes_rec,
+						interfaces_after[j].bytes_sent,
+						interfaces_after[j].bytes_rec);
+					if(ifacestr != NULL) {
+						strcat(netstr, ifacestr);
+					}
+				}	
+			}
+		}
+
+
+	}
+
+	if(strcmp(netstr, "")) {
+		logger("[Network] - Everything is fine");
+		return;
+	}
+
+	logger("[Network] - No interface seems to be up");
+	strcpy(netstr, "[-NO IFACE UP-]");
+	return;
+}
+
+char* get_dev_speed(char* name,
+		unsigned long long int oldsent,
+		unsigned long long int oldrec,
+		unsigned long long int newsent,
+		unsigned long long int newrec) {
+	double downspeed, upspeed;
+	char *downspeedstr, *upspeedstr;
+	char *retstr;
+
+	downspeedstr = (char *) malloc(15);
+	upspeedstr = (char *) malloc(15);
+	retstr = (char *) malloc(42);
+
+	downspeed = (newrec - oldrec) / 1024.0;
+	if (downspeed > 1024.0) {
+	    downspeed /= 1024.0;
+	    sprintf(downspeedstr, "%.3f MB/s", downspeed);
+	} else {
+	    sprintf(downspeedstr, "%.2f KB/s", downspeed);
+	}
+
+	upspeed = (newsent - oldsent) / 1024.0;
+	if (upspeed > 1024.0) {
+	    upspeed /= 1024.0;
+	    sprintf(upspeedstr, "%.3f MB/s", upspeed);
+	} else {
+	    sprintf(upspeedstr, "%.2f KB/s", upspeed);
+	}
+
+	if(downspeed == 0 && upspeed == 0) {
+	    sprintf(retstr, "[%s]", name);
+	    //return NULL;
+	}
+	else {
+	    sprintf(retstr, "[%s D: %s ~ U: %s]", name, downspeedstr, upspeedstr);
+	}
+
+	free(downspeedstr);
+	free(upspeedstr);
+	return retstr;
+}
+
+/* ******* *
+ * Battery *
+ * ******* */
+
+char *
+readfile(char *base, char *file)
+{
+	char *path, line[513];
+	FILE *fd;
+
+	memset(line, 0, sizeof(line));
+
+	path = smprintf("%s/%s", base, file);
+	fd = fopen(path, "r");
+	if (fd == NULL)
+		return NULL;
+	free(path);
+
+	if (fgets(line, sizeof(line)-1, fd) == NULL)
+		return NULL;
+	fclose(fd);
+
+	return smprintf("%s", line);
+}
+
+/*
+ * Linux seems to change the filenames after suspend/hibernate
+ * according to a random scheme. So just check for both possibilities.
+ */
+char *
+getbattery(char *base)
+{
+	char *co;
+	int descap, remcap;
+	char status = '?';
+
+	descap = -1;
+	remcap = -1;
+
+	co = readfile(base, "status");
+	if(!strncmp(co, "Charging", 8)) {
+		status = '^';
+	}
+	else if(!strncmp(co, "Discharging", 11)) {
+		status = 'v';
+	}
+	else {
+		status = '=';
+	}
+
+	co = readfile(base, "present");
+	if (co == NULL || co[0] != '1') {
+		if (co != NULL) free(co);
+		return smprintf("not present");
+	}
+	free(co);
+
+	co = readfile(base, "charge_full_design");
+	if (co == NULL) {
+		//co = readfile(base, "energy_full_design");
+		co = readfile(base, "energy_full");
+		if (co == NULL)
+			return smprintf("");
+	}
+	sscanf(co, "%d", &descap);
+	free(co);
+
+	co = readfile(base, "charge_now");
+	if (co == NULL) {
+		co = readfile(base, "energy_now");
+		if (co == NULL)
+			return smprintf("");
+	}
+	sscanf(co, "%d", &remcap);
+	free(co);
+
+	if (remcap < 0 || descap < 0)
+		return smprintf("invalid");
+
+	return smprintf("%c%.0f", status, ((float)remcap / (float)descap) * 100);
+}
 
 int
 main(void)
 {
 	char *status;
-	char *avgs;
-	char *tmar;
-	char *tmutc;
-	char *tmbln;
+	char *tmparis;
+	char *battery;
+	char netstats[150];
 
 	if (!(dpy = XOpenDisplay(NULL))) {
 		fprintf(stderr, "dwmstatus: cannot open display.\n");
 		return 1;
 	}
 
-	for (;;sleep(90)) {
-		avgs = loadavg();
-		tmar = mktimes("%H:%M", tzargentina);
-		tmutc = mktimes("%H:%M", tzutc);
-		tmbln = mktimes("KW %W %a %d %b %H:%M %Z %Y", tzberlin);
+	//for (;;sleep(60)) {
+	for (;;sleep(10)) {
+		tmparis = mktimes("%a %d %b %H:%M %Y", tzparis);
+		battery = getbattery("/sys/class/power_supply/BAT0/");
+		network(netstats);
 
-		status = smprintf("L:%s A:%s U:%s %s",
-				avgs, tmar, tmutc, tmbln);
+		status = smprintf("%s %s [%s%]", netstats, tmparis, battery);
+
 		setstatus(status);
-		free(avgs);
-		free(tmar);
-		free(tmutc);
-		free(tmbln);
+
+		//free(netstats);
+		free(battery);
+		free(tmparis);
 		free(status);
 	}
 
@@ -126,4 +385,3 @@ main(void)
 
 	return 0;
 }
-
