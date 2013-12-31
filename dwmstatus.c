@@ -350,7 +350,7 @@ getbattery(char *base, int *prev_remcap, time_t *start, char** remaining_time)
 		return smprintf("invalid");
 
         // If the battery is discharging, show the remaining time
-        if(status == 'v') {
+        if(status == 'v' || status == '^') {
           // If it has just begun discharging, get data on the remaining capacity
           // and start the counter
           int delay = -1;
@@ -366,9 +366,15 @@ getbattery(char *base, int *prev_remcap, time_t *start, char** remaining_time)
           // If it has been more than 1 minute since last check
           if(delay > 1) {
             //float minutes = remcap / ((float)(*prev_remcap - remcap)/10)/60;
-            int spent = *prev_remcap - remcap;
+            int spent = abs(*prev_remcap - remcap);
             int spent_in_a_minute = (spent * 60) / delay;
-            int minutes = remcap / spent_in_a_minute;
+            int minutes;
+            if(status == 'v') {
+              minutes = remcap / spent_in_a_minute;
+            }
+            else {
+              minutes = (descap - remcap) / spent_in_a_minute;
+            }
             int hours = minutes/60;
             minutes = minutes%60;
             *remaining_time = smprintf(" %dh%02d", hours, minutes);
