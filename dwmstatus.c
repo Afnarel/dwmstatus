@@ -303,6 +303,7 @@ readfile(char *base, char *file)
 getbattery(char *base)
 {
   char *co;
+  char* remaining_time;
   int descap, remcap;
   double remaining, using, voltage, current;
   char status = '?';
@@ -370,25 +371,27 @@ getbattery(char *base)
   else {
     status = '=';
     remaining = 0;
+    remaining_time="";
   }
 
-  /* convert to hour:min:sec */
-  int hours, seconds, minutes, secs_rem;
-  secs_rem = (int)(remaining * 3600.0);
-  hours = secs_rem / 3600;
-  seconds = secs_rem - (hours * 3600);
-  minutes = seconds / 60;
-  seconds -= (minutes *60);
+  if(remaining != 0) {
+    /* convert to hour:min:sec */
+    int hours, seconds, minutes, secs_rem;
+    secs_rem = (int)(remaining * 3600.0);
+    hours = secs_rem / 3600;
+    seconds = secs_rem - (hours * 3600);
+    minutes = seconds / 60;
+    seconds -= (minutes *60);
 
-  char* remaining_time;
-  if(seconds < 0 || minutes < 0 || hours < 0) {
-    remaining_time = smprintf("...");
-  }
-  else if(hours) {
-    remaining_time = smprintf(" %02d:%02d:%02d", hours, minutes, seconds);
-  }
-  else {
-    remaining_time = smprintf(" %02d:%02d", minutes, seconds);
+    if(seconds < 0 || minutes < 0 || hours < 0) {
+      remaining_time = smprintf(" ...");
+    }
+    else if(hours) {
+      remaining_time = smprintf(" %02d:%02d:%02d", hours, minutes, seconds);
+    }
+    else {
+      remaining_time = smprintf(" %02d:%02d", minutes, seconds);
+    }
   }
 
   return smprintf("[%c%.0f%%%s]", status, ((float)remcap / (float)descap) * 100, remaining_time);
