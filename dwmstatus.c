@@ -27,7 +27,7 @@ struct Interface {
 void logger(char* chaine);
 
 char * readfile(char *base, char *file);
-char * getbattery(char *base);
+char * getbattery(char *base, int *prev_remcap, time_t *start, char **remaining_time);
 
 // For the network
 char* get_dev_speed(char* name,
@@ -300,7 +300,7 @@ readfile(char *base, char *file)
  * according to a random scheme. So just check for both possibilities.
  */
 char *
-getbattery(char *base)
+getbattery(char *base, int *prev_remcap, time_t *start, char** remaining_time)
 {
 	char *co;
 	int descap, remcap;
@@ -349,7 +349,41 @@ getbattery(char *base)
 	if (remcap < 0 || descap < 0)
 		return smprintf("invalid");
 
-	return smprintf("%c%.0f", status, ((float)remcap / (float)descap) * 100);
+        // If the battery is discharging, show the remaining time
+        if(status == 'v') {
+          // If it has just begun discharging, get data on the remaining capacity
+          // and start the counter
+          int delay = -1;
+          if(*prev_remcap == -1) {
+            *prev_remcap = remcap;
+            *start = time(NULL);
+          }
+          // Otherwise, get the delay
+          else {
+            delay = time(NULL)-*start;
+          }
+
+          // If it has been more than 1 minute since last check
+          if(delay > 1) {
+            //float minutes = remcap / ((float)(*prev_remcap - remcap)/10)/60;
+            int spent = *prev_remcap - remcap;
+            int spent_in_a_minute = (spent * 60) / delay;
+            int minutes = remcap / spent_in_a_minute;
+            int hours = minutes/60;
+            minutes = minutes%60;
+            *remaining_time = smprintf(" %dh%02d", hours, minutes);
+
+            // Reset the time and reference remaining capacity
+            //*prev_remcap = remcap;
+            //*start = time(NULL);
+          }
+        }
+        else {
+          *remaining_time = smprintf("");
+          *prev_remcap = -1;
+        }
+
+	return smprintf("[%c%.0f%%%s]", status, ((float)remcap / (float)descap) * 100, *remaining_time);
 }
 
 int
@@ -360,6 +394,10 @@ main(void)
 	char *battery;
 	char netstats[150];
 
+        char* remaining_time = "";
+        int prev_remcap = -1;
+        time_t start;
+
 	if (!(dpy = XOpenDisplay(NULL))) {
 		fprintf(stderr, "dwmstatus: cannot open display.\n");
 		return 1;
@@ -368,10 +406,10 @@ main(void)
 	//for (;;sleep(60)) {
 	for (;;sleep(10)) {
 		tmparis = mktimes("%a %d %b %H:%M %Y", tzparis);
-		battery = getbattery("/sys/class/power_supply/BAT0/");
+		battery = getbattery("/sys/class/power_supply/BAT0/", &prev_remcap, &start, &remaining_time);
 		network(netstats);
 
-		status = smprintf("%s %s [%s%]", netstats, tmparis, battery);
+		status = smprintf("%s %s %s", netstats, tmparis, battery);
 
 		setstatus(status);
 
