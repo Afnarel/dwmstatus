@@ -165,7 +165,7 @@ int devinfo(struct Interface interfaces[]) {
         }
         else if(i == 8) { // sent bytes
           interfaces[nb_ifaces].bytes_sent = atoi(part);
-        }	
+        }
       }
       nb_ifaces++;
     }
@@ -201,7 +201,7 @@ void network(char netstr[]) {
         if(interfaces_before[i].bytes_sent != 0 &&
             interfaces_before[i].bytes_rec  != 0 &&
             interfaces_after[j].bytes_sent  != 0 &&
-            interfaces_after[j].bytes_rec   != 0) {	
+            interfaces_after[j].bytes_rec   != 0) {
 
           char* ifacestr = get_dev_speed(interfaces_before[i].name,
               interfaces_before[i].bytes_sent,
@@ -211,7 +211,7 @@ void network(char netstr[]) {
           if(ifacestr != NULL) {
             strcat(netstr, ifacestr);
           }
-        }	
+        }
       }
     }
 
@@ -262,7 +262,7 @@ char* get_dev_speed(char* name,
     //return NULL;
   }
   else {
-    sprintf(retstr, "[%s D: %s ~ U: %s]", name, downspeedstr, upspeedstr);
+    sprintf(retstr, "[%s D: %s ~ U: %s]", name, downspeedstr, upspeedstr);
   }
 
   free(downspeedstr);
@@ -417,6 +417,7 @@ main(void)
     network(netstats);
 
     status = smprintf("%s %s %s", netstats, tmparis, battery);
+    printf("%s\n", status);
 
     setstatus(status);
 
